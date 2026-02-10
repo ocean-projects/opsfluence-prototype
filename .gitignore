@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+backend/venv/
+backend/.env
+
+# Node
+node_modules/
+
+# Expo
+.expo/
+dist/
+
+# Logs
+*.log
