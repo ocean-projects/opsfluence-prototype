@@ -1,18 +1,52 @@
-# macOS
-.DS_Store
-
+# ----------------------
 # Python
+# ----------------------
 __pycache__/
-*.pyc
-backend/venv/
-backend/.env
-
-# Node
-node_modules/
-
-# Expo
-.expo/
-dist/
-
-# Logs
+*.py[cod]
 *.log
+
+.venv/
+venv/
+**/.venv/
+**/venv/
+
+.env
+.env.*
+!/.env.example
+
+# ----------------------
+# Node / Next / Expo
+# ----------------------
+node_modules/
+**/node_modules/
+
+.next/
+**/.next/
+
+.expo/
+
+out/
+dist/
+**/dist/
+
+# ----------------------
+# Terraform
+# ----------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+
+# ----------------------
+# Test / Coverage
+# ----------------------
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ----------------------
+# OS / IDE
+# ----------------------
+.DS_Store
+.idea/
+.vscode/
