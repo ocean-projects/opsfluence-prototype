@@ -18,10 +18,12 @@ from app.db.base_class import Base
 # Incident Status Enum
 # -----------------------------
 class IncidentStatus(str, Enum):
-    OPEN = "open"
-    IN_PROGRESS = "in_progress"
-    RESOLVED = "resolved"
-    CLOSED = "closed"
+    # NOTE: These values intentionally match the *Postgres enum values*
+    # created in Alembic (incident_status). Keep them uppercase.
+    OPEN = "OPEN"
+    IN_PROGRESS = "IN_PROGRESS"
+    RESOLVED = "RESOLVED"
+    CLOSED = "CLOSED"
 
 
 # -----------------------------
