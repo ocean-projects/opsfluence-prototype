@@ -1,20 +1,19 @@
 import json
 import time
-from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from urllib.request import urlopen
+from urllib.error import URLError
 
 from jose import jwt
-from jose.exceptions import JWTError
+from jwt.algorithms import RSAAlgorithm
 
 from app.core.config import settings
 
 
-@dataclass
 class _JWKSCache:
     jwks: Optional[Dict[str, Any]] = None
     fetched_at: float = 0.0
-    ttl_seconds: int = 60 * 60  # 1 hour
+    ttl_seconds: int = 3600
 
 
 _jwks_cache = _JWKSCache()
@@ -27,20 +26,19 @@ def _jwks_url() -> str:
     )
 
 
-def _issuer() -> str:
-    return (
-        f"https://cognito-idp.{settings.COGNITO_REGION}.amazonaws.com/"
-        f"{settings.COGNITO_USER_POOL_ID}"
-    )
-
-
 def get_jwks() -> Dict[str, Any]:
     now = time.time()
     if _jwks_cache.jwks and (now - _jwks_cache.fetched_at) < _jwks_cache.ttl_seconds:
         return _jwks_cache.jwks
 
-    with urlopen(_jwks_url()) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    # IMPORTANT: timeout prevents hanging requests
+    try:
+        with urlopen(_jwks_url(), timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except URLError as e:
+        raise ValueError(f"Failed to fetch JWKS: {e}") from e
+    except Exception as e:
+        raise ValueError(f"Failed to fetch JWKS: {e}") from e
 
     _jwks_cache.jwks = data
     _jwks_cache.fetched_at = now
@@ -48,48 +46,48 @@ def get_jwks() -> Dict[str, Any]:
 
 
 def verify_cognito_access_token(token: str) -> Dict[str, Any]:
-    """Verify a Cognito **access token** using the user pool JWKS.
-
-    Returns decoded claims if valid; raises ValueError otherwise.
-
-    Notes:
-    - Cognito access tokens typically include `client_id` (not always `aud`).
-    - We verify issuer + signature and then check `client_id`.
     """
-
+    Verifies a Cognito ACCESS token.
+    Access tokens use `client_id` (not `aud`).
+    """
     try:
         unverified_header = jwt.get_unverified_header(token)
         kid = unverified_header.get("kid")
         if not kid:
-            raise ValueError("Token missing kid")
+            raise ValueError("Missing kid")
 
         jwks = get_jwks()
         key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
+
         if not key:
-            # Refresh once in case of rotation
+            # refresh cache once
             _jwks_cache.jwks = None
             jwks = get_jwks()
             key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
             if not key:
-                raise ValueError("No matching JWKS key")
+                raise ValueError("Public key not found in JWKS")
+
+        public_key = RSAAlgorithm.from_jwk(json.dumps(key))
+        issuer = (
+            f"https://cognito-idp.{settings.COGNITO_REGION}.amazonaws.com/"
+            f"{settings.COGNITO_USER_POOL_ID}"
+        )
 
         claims = jwt.decode(
             token,
-            key,
+            key=public_key,
             algorithms=["RS256"],
-            issuer=_issuer(),
+            issuer=issuer,
             options={"verify_aud": False},
         )
 
-        client_id = claims.get("client_id")
-        if client_id != settings.COGNITO_APP_CLIENT_ID:
-            raise ValueError("Invalid client_id")
+        if claims.get("token_use") != "access":
+            raise ValueError(f"Wrong token_use: {claims.get('token_use')}")
 
-        token_use = claims.get("token_use")
-        if token_use and token_use != "access":
-            raise ValueError("Expected access token")
+        if claims.get("client_id") != settings.COGNITO_APP_CLIENT_ID:
+            raise ValueError("client_id mismatch")
 
         return claims
 
-    except JWTError as e:
+    except Exception as e:
         raise ValueError("Invalid token") from e

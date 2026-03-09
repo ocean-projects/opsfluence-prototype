@@ -1,40 +1,45 @@
-from pydantic import BaseModel
-from typing import Optional
 from datetime import datetime
-from app.models.incident import IncidentStatus
+from typing import Any, Optional
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
 
 
-# Shared base fields
-class IncidentBase(BaseModel):
+class IncidentCreate(BaseModel):
     title: str
     description: Optional[str] = None
-    severity: str  # REQUIRED (DB requires this)
-
-    model_config = {
-        "extra": "forbid"
-    }
-
-# Used when creating a new incident
-class IncidentCreate(IncidentBase):
-    pass
+    severity: str = "SEV3"
+    status: str = "OPEN"
 
 
-# Used when updating an incident
 class IncidentUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     severity: Optional[str] = None
-    status: Optional[IncidentStatus] = None
+    status: Optional[str] = None
+    assignee_id: Optional[UUID] = None
 
 
-# Returned in responses
-class IncidentOut(IncidentBase):
-    id: int
+class IncidentOut(BaseModel):
+    id: UUID
+    title: str
+    description: Optional[str] = None
     status: str
-    owner_id: int
-    created_at: datetime
-    updated_at: datetime
+    severity: str
+    created_by: UUID
+    assignee_id: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IncidentEventOut(BaseModel):
+    id: UUID
+    incident_id: UUID
+    actor_id: Optional[UUID] = None
+    type: str
+    data: Optional[dict[str, Any]] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)

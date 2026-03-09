@@ -1,67 +1,86 @@
+import uuid
+from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Text,
-    DateTime,
-    ForeignKey,
-    Enum as SAEnum,
-)
-from sqlalchemy.sql import func
+from sqlalchemy import Column, DateTime, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from sqlalchemy.types import Enum as SAEnum
 
 from app.db.base_class import Base
 
 
-# -----------------------------
-# Incident Status Enum
-# -----------------------------
 class IncidentStatus(str, Enum):
-    # NOTE: These values intentionally match the *Postgres enum values*
-    # created in Alembic (incident_status). Keep them uppercase.
     OPEN = "OPEN"
     IN_PROGRESS = "IN_PROGRESS"
+    MITIGATED = "MITIGATED"
     RESOLVED = "RESOLVED"
-    CLOSED = "CLOSED"
 
 
-# -----------------------------
-# Incident Model
-# -----------------------------
+class IncidentSeverity(str, Enum):
+    SEV1 = "SEV1"
+    SEV2 = "SEV2"
+    SEV3 = "SEV3"
+    SEV4 = "SEV4"
+
+
 class Incident(Base):
     __tablename__ = "incidents"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     title = Column(String, nullable=False)
-    description = Column(Text)
+    description = Column(Text, nullable=True)
 
-    severity = Column(String, nullable=False)
-
-    # Enum stored at DB level
     status = Column(
         SAEnum(IncidentStatus, name="incident_status"),
         nullable=False,
         default=IncidentStatus.OPEN,
     )
 
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    severity = Column(
+        SAEnum(IncidentSeverity, name="incident_severity"),
+        nullable=False,
+        default=IncidentSeverity.SEV3,
+    )
+
+    created_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=False,
+    )
+
+    assignee_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
+        DateTime,
+        default=datetime.utcnow,
         nullable=False,
     )
 
     updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
         nullable=False,
     )
 
-    resolved_at = Column(
-        DateTime(timezone=True),
-        nullable=True,
+    events = relationship(
+        "IncidentEvent",
+        back_populates="incident",
+        cascade="all, delete-orphan",
+    )
+
+    creator = relationship(
+        "User",
+        foreign_keys=[created_by],
+    )
+
+    assignee = relationship(
+        "User",
+        foreign_keys=[assignee_id],
     )
