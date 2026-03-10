@@ -1,3 +1,4 @@
+import Link from "next/link";
 import DashboardClientWrapper from "./DashboardClientWrapper";
 import UserMenu from "../components/UserMenu";
 
@@ -14,6 +15,12 @@ export default function DashboardPage() {
       </div>
 
       <DashboardClientWrapper />
+
+      <div style={bottomLinkRow}>
+        <Link href="/deleted-incidents" className="deleted-incidents-link" style={deletedIncidentsLink}>
+          Deleted incidents
+        </Link>
+      </div>
     </main>
   );
 }
@@ -46,4 +53,21 @@ const h1: React.CSSProperties = {
 const subtle: React.CSSProperties = {
   opacity: 0.75,
   fontSize: 13,
+};
+
+const bottomLinkRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  marginTop: 10,
+};
+
+const deletedIncidentsLink: React.CSSProperties = {
+  fontSize: 12,
+  color: "#9a9a9a",
+  textDecoration: "none",
+  padding: "4px 10px",
+  borderRadius: 8,
+  border: "1px solid rgba(255,255,255,.08)",
+  background: "rgba(255,255,255,.03)",
+  opacity: 0.85,
 };

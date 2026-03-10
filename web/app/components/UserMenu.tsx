@@ -8,6 +8,7 @@ type Me = {
   role?: string;
   first_name?: string | null;
   last_name?: string | null;
+  is_active?: boolean;
 };
 
 export default function UserMenu() {
@@ -47,15 +48,11 @@ export default function UserMenu() {
   }, []);
 
   const displayName = me?.first_name || "User";
+  const isAdmin = me?.role === "ADMIN";
 
   return (
     <div ref={wrapRef} style={wrap}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        style={trigger}
-        aria-label="Open account menu"
-      >
+      <button type="button" onClick={() => setOpen((v) => !v)} style={trigger} aria-label="Open account menu">
         <span style={triggerLines}>☰</span>
       </button>
 
@@ -72,6 +69,12 @@ export default function UserMenu() {
           <a href="/security" style={menuItem}>
             Security
           </a>
+
+          {isAdmin ? (
+            <a href="/admin" style={menuItem}>
+              Admin
+            </a>
+          ) : null}
 
           <a href="/auth/logout" style={{ ...menuItem, color: "#f3b3b3" }}>
             Log out
@@ -109,7 +112,7 @@ const menu: React.CSSProperties = {
   position: "absolute",
   top: 46,
   right: 0,
-  minWidth: 220,
+  minWidth: 240,
   border: "1px solid rgba(255,255,255,.14)",
   borderRadius: 12,
   background: "#111214",
@@ -121,11 +124,12 @@ const menu: React.CSSProperties = {
 const menuHeader: React.CSSProperties = {
   padding: "12px 14px",
   borderBottom: "1px solid rgba(255,255,255,.08)",
+  background: "rgba(255,255,255,.02)",
 };
 
 const menuName: React.CSSProperties = {
   fontSize: 14,
-  fontWeight: 600,
+  fontWeight: 700,
 };
 
 const menuItem: React.CSSProperties = {

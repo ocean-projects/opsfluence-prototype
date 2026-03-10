@@ -1,36 +1,119 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Opsfluence
 
-## Getting Started
+**Opsfluence** is an incident timeline platform for engineering teams.  
+It helps teams **create, track, assign, update, audit, and archive incidents** with a structured event history that makes every operational change visible.
 
-First, run the development server:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Screenshots
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Dashboard
+The dashboard provides incident creation, incident listing, assignment visibility, and sorting.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+![Dashboard](images/dashboard.png)
 
-## Learn More
+### Incident details and event history
+Each incident has a structured event timeline showing who made changes, what changed, and when.
 
-To learn more about Next.js, take a look at the following resources:
+![Incident Details](images/incident-details.png)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Admin user management
+Admins can manage users, edit first and last names, and disable accounts.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+![Admin](images/admin.png)
 
-## Deploy on Vercel
+### Deleted incidents archive
+Deleted incidents are removed from the live dashboard and retained in an archive for auditability.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+![Deleted Incidents](images/deleted-incidents.png)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+
+## Why this project exists
+
+During production incidents, important information gets scattered across tools, logs, dashboards, and human memory.
+
+Opsfluence addresses that by modeling incidents as a timeline of structured events, making it easier to reconstruct what happened during an outage and understand who changed what, and when.
+
+---
+
+## Core features
+
+- Incident creation and lifecycle management
+- Structured event history for every incident change
+- Role-aware access control
+- Incident deletion with archive retention
+- Admin-only user management
+- Full audit trail for operational updates
+
+---
+
+## Architecture
+
+**Frontend**
+- Next.js 16
+- TypeScript
+- App Router
+- authenticated API proxy routes
+
+**Backend**
+- FastAPI
+- SQLAlchemy
+- Pydantic
+- Alembic
+
+**Database**
+- PostgreSQL
+
+**Auth**
+- Cognito-oriented authentication flow
+- backend-enforced authorization and user disable checks
+
+**Local infrastructure**
+- Docker Compose
+
+---
+
+## Data model
+
+Opsfluence is centered around a timeline-first incident model.
+
+**Incident**  
+Stores the current operational state of the incident.
+
+**IncidentEvent**  
+Stores each meaningful state transition, including actor, timestamp, type, and structured change details.
+
+**DeletedIncident**  
+Stores archived incidents after deletion so operational history is preserved.
+
+---
+
+## Engineering highlights
+
+- Timeline-first incident modeling
+- Structured audit history for mutable incident state
+- Archived deletes instead of destructive deletes
+- Backend-enforced ownership and admin permissions
+- Admin-only user management
+- Clear separation between authentication and app-level authorization
+
+---
+
+## Tech stack
+
+- Next.js
+- TypeScript
+- FastAPI
+- SQLAlchemy
+- Alembic
+- PostgreSQL
+- Docker
+
+---
+
+## Status
+
+**MVP 0 complete**
+
+This version establishes the core incident timeline and audit model that future integrations and incident intelligence features can build on.

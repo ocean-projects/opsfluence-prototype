@@ -3,13 +3,15 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models.incident import Incident
+from app.models.deleted_incident import DeletedIncident
 from app.models.event import IncidentEvent
+from app.models.incident import Incident
 from app.models.user import User
+from app.schemas.deleted_incident import DeleteIncidentRequest
 from app.schemas.incident import (
     IncidentCreate,
     IncidentEventOut,
@@ -39,18 +41,29 @@ def append_event(
     return event
 
 
+def get_incident_with_assignee(
+    db: Session,
+    incident_id: UUID,
+) -> Incident | None:
+    return (
+        db.query(Incident)
+        .options(joinedload(Incident.assignee))
+        .filter(Incident.id == incident_id)
+        .first()
+    )
+
+
 @router.get("/", response_model=List[IncidentOut])
 def list_incidents(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(get_current_user),
 ):
-    incidents = (
+    return (
         db.query(Incident)
-        .filter(Incident.created_by == current_user.id)
+        .options(joinedload(Incident.assignee))
         .order_by(Incident.created_at.desc())
         .all()
     )
-    return incidents
 
 
 @router.post("/", response_model=IncidentOut, status_code=201)
@@ -87,24 +100,19 @@ def create_incident(
     )
 
     db.commit()
-    db.refresh(incident)
-    return incident
+    created = get_incident_with_assignee(db, incident.id)
+    if not created:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return created
 
 
 @router.get("/{incident_id}", response_model=IncidentOut)
 def get_incident(
     incident_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(get_current_user),
 ):
-    incident = (
-        db.query(Incident)
-        .filter(
-            Incident.id == incident_id,
-            Incident.created_by == current_user.id,
-        )
-        .first()
-    )
+    incident = get_incident_with_assignee(db, incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     return incident
@@ -117,14 +125,7 @@ def update_incident(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    incident = (
-        db.query(Incident)
-        .filter(
-            Incident.id == incident_id,
-            Incident.created_by == current_user.id,
-        )
-        .first()
-    )
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
@@ -138,10 +139,7 @@ def update_incident(
                 incident_id=incident.id,
                 actor_id=current_user.id,
                 event_type="title_updated",
-                data={
-                    "from": incident.title,
-                    "to": next_title,
-                },
+                data={"from": incident.title, "to": next_title},
             )
             incident.title = next_title
             changed = True
@@ -154,10 +152,7 @@ def update_incident(
                 incident_id=incident.id,
                 actor_id=current_user.id,
                 event_type="description_updated",
-                data={
-                    "from": incident.description,
-                    "to": next_description,
-                },
+                data={"from": incident.description, "to": next_description},
             )
             incident.description = next_description
             changed = True
@@ -168,10 +163,7 @@ def update_incident(
             incident_id=incident.id,
             actor_id=current_user.id,
             event_type="status_updated",
-            data={
-                "from": incident.status,
-                "to": payload.status,
-            },
+            data={"from": incident.status, "to": payload.status},
         )
         incident.status = payload.status
         changed = True
@@ -182,10 +174,7 @@ def update_incident(
             incident_id=incident.id,
             actor_id=current_user.id,
             event_type="severity_updated",
-            data={
-                "from": incident.severity,
-                "to": payload.severity,
-            },
+            data={"from": incident.severity, "to": payload.severity},
         )
         incident.severity = payload.severity
         changed = True
@@ -208,27 +197,29 @@ def update_incident(
         incident.updated_at = datetime.utcnow()
         db.add(incident)
         db.commit()
-        db.refresh(incident)
 
-    return incident
+    updated = get_incident_with_assignee(db, incident_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return updated
 
 
-@router.get("/{incident_id}/events", response_model=List[IncidentEventOut])
-def list_incident_events(
+@router.delete("/{incident_id}")
+def delete_incident(
     incident_id: UUID,
+    payload: DeleteIncidentRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    incident = (
-        db.query(Incident)
-        .filter(
-            Incident.id == incident_id,
-            Incident.created_by == current_user.id,
-        )
-        .first()
-    )
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
+
+    if incident.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner can delete this incident")
+
+    if payload.confirm != "DELETE":
+        raise HTTPException(status_code=400, detail='Type DELETE to confirm')
 
     events = (
         db.query(IncidentEvent)
@@ -236,4 +227,56 @@ def list_incident_events(
         .order_by(IncidentEvent.created_at.asc())
         .all()
     )
-    return events
+
+    snapshot = [
+        {
+            "id": str(ev.id),
+            "incident_id": str(ev.incident_id),
+            "actor_id": str(ev.actor_id) if ev.actor_id else None,
+            "type": ev.type,
+            "data": ev.data,
+            "created_at": ev.created_at.isoformat() if ev.created_at else None,
+        }
+        for ev in events
+    ]
+
+    archived = DeletedIncident(
+        original_incident_id=incident.id,
+        title=incident.title,
+        description=incident.description,
+        status=str(incident.status),
+        severity=str(incident.severity),
+        created_by=incident.created_by,
+        assignee_id=incident.assignee_id,
+        created_at=incident.created_at,
+        updated_at=incident.updated_at,
+        deleted_by=current_user.id,
+        deleted_at=datetime.utcnow(),
+        events_snapshot=snapshot,
+    )
+    db.add(archived)
+
+    db.query(IncidentEvent).filter(IncidentEvent.incident_id == incident_id).delete()
+    db.delete(incident)
+    db.commit()
+
+    return {"status": "ok", "detail": "Incident deleted"}
+    
+
+@router.get("/{incident_id}/events", response_model=List[IncidentEventOut])
+def list_incident_events(
+    incident_id: UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    return (
+        db.query(IncidentEvent)
+        .options(joinedload(IncidentEvent.actor))
+        .filter(IncidentEvent.incident_id == incident_id)
+        .order_by(IncidentEvent.created_at.asc())
+        .all()
+    )

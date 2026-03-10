@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.user import UserSummaryOut
+
 
 class IncidentCreate(BaseModel):
     title: str
@@ -28,6 +30,7 @@ class IncidentOut(BaseModel):
     severity: str
     created_by: UUID
     assignee_id: Optional[UUID] = None
+    assignee: Optional[UserSummaryOut] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -38,6 +41,7 @@ class IncidentEventOut(BaseModel):
     id: UUID
     incident_id: UUID
     actor_id: Optional[UUID] = None
+    actor: Optional[UserSummaryOut] = None
     type: str
     data: Optional[dict[str, Any]] = None
     created_at: Optional[datetime] = None

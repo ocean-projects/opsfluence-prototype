@@ -1,108 +1,62 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
-from app.core.cognito import verify_cognito_access_token
 from app.db.session import get_db
 from app.models.user import User
+from app.core.config import settings
 
-
-bearer_scheme = HTTPBearer(auto_error=False)
+security = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
-    creds: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
-    if not creds or not creds.credentials:
+    if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing Authorization bearer token",
         )
 
-    token = creds.credentials
+    token = credentials.credentials
 
     try:
-        claims = verify_cognito_access_token(token)
-    except Exception as e:
-        print("COGNITO TOKEN VERIFY FAILED:", repr(e))
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-        )
+        payload = jwt.get_unverified_claims(token)
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
-    cognito_sub = claims.get("sub")
-    email = claims.get("email")
+    cognito_sub = payload.get("sub")
+    email = payload.get("email")
+    role = payload.get("custom:role") or payload.get("role") or "OPERATOR"
 
     if not cognito_sub:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing sub claim",
-        )
-
-    fallback_email = f"{cognito_sub}@unknown"
+        raise HTTPException(status_code=401, detail="Invalid token payload")
 
     user = db.query(User).filter(User.cognito_sub == cognito_sub).first()
 
-    if user:
-        desired_email = email or user.email or fallback_email
-
-        if desired_email != user.email:
-            conflict = (
-                db.query(User)
-                .filter(User.email == desired_email, User.id != user.id)
-                .first()
-            )
-            if not conflict:
-                user.email = desired_email
-
+    if not user:
+        fallback_email = email or f"{cognito_sub}@unknown.local"
+        user = User(
+            cognito_sub=cognito_sub,
+            email=fallback_email,
+            role=role,
+            first_name=payload.get("given_name"),
+            last_name=payload.get("family_name"),
+            is_active=True,
+        )
+        db.add(user)
         db.commit()
         db.refresh(user)
-        return user
 
-    desired_email = email or fallback_email
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User is disabled")
 
-    conflict = db.query(User).filter(User.email == desired_email).first()
-    if conflict:
-        desired_email = f"{cognito_sub}-{fallback_email}"
-
-    user = User(
-        id=cognito_sub,
-        cognito_sub=cognito_sub,
-        email=desired_email,
-        role="OPERATOR",
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
     return user
 
 
-def require_admin(user: User = Depends(get_current_user)) -> User:
-    if user.role != "ADMIN":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required",
-        )
-    return user
-
-
-def require_operator(user: User = Depends(get_current_user)) -> User:
-    if user.role not in {"ADMIN", "OPERATOR"}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Operator role required",
-        )
-    return user
-
-
-def require_roles(allowed: set[str]):
-    def _dep(user: User = Depends(get_current_user)) -> User:
-        if user.role not in allowed:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions",
-            )
-        return user
-
-    return _dep
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user

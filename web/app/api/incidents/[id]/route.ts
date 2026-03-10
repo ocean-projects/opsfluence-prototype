@@ -91,3 +91,46 @@ export async function PATCH(req: NextRequest, { params }: ParamsInput) {
     );
   }
 }
+
+export async function DELETE(req: NextRequest, { params }: ParamsInput) {
+  const id = await getId(params);
+
+  if (!id) {
+    return NextResponse.json({ detail: "Missing incident id" }, { status: 400 });
+  }
+
+  const store = await cookies();
+  const token = store.get("access_token")?.value;
+
+  if (!token) {
+    return NextResponse.json({ detail: "Missing access_token cookie" }, { status: 401 });
+  }
+
+  try {
+    const body = await req.text();
+
+    const resp = await fetch(`${API_BASE}/incidents/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body,
+      cache: "no-store",
+    });
+
+    const text = await resp.text();
+
+    return new NextResponse(text, {
+      status: resp.status,
+      headers: {
+        "content-type": resp.headers.get("content-type") || "application/json",
+      },
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { detail: e?.message ?? "Failed to reach backend incident delete endpoint" },
+      { status: 500 }
+    );
+  }
+}

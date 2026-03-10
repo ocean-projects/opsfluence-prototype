@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import incidents, metrics
+from app.api import incidents, metrics, users, me, deleted_incidents
 from app.api.users import router as users_router
 from app.api.me import router as me_router
 from app.core.config import settings
@@ -26,3 +26,4 @@ app.include_router(users_router)
 app.include_router(me_router)
 app.include_router(incidents.router)
 app.include_router(metrics.router)
+app.include_router(deleted_incidents.router)

@@ -54,7 +54,6 @@ function fullName(user?: UserLite | null) {
 
 export default function DashboardClient() {
   const [me, setMe] = useState<Me | null>(null);
-  const [users, setUsers] = useState<UserLite[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -71,10 +70,9 @@ export default function DashboardClient() {
     setError("");
 
     try {
-      const [meRes, incidentsRes, usersRes] = await Promise.all([
+      const [meRes, incidentsRes] = await Promise.all([
         fetch("/api/me", { cache: "no-store" }),
         fetch("/api/incidents", { cache: "no-store" }),
-        fetch("/api/users", { cache: "no-store" }),
       ]);
 
       let nextError = "";
@@ -95,17 +93,10 @@ export default function DashboardClient() {
         }
       }
 
-      if (usersRes.ok) {
-        setUsers(await usersRes.json());
-      } else {
-        setUsers([]);
-      }
-
       setError(nextError);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Request failed");
       setIncidents([]);
-      setUsers([]);
       setMe(null);
     } finally {
       setLoading(false);
@@ -149,23 +140,6 @@ export default function DashboardClient() {
       setError(e instanceof Error ? e.message : "Failed to create incident");
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function assignIncident(incidentId: string, userId: string) {
-    try {
-      const res = await fetch(`/api/incidents/${incidentId}/assign/${userId}`, {
-        method: "POST",
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`API error ${res.status}: ${text}`);
-      }
-
-      await loadAll();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to assign incident");
     }
   }
 
@@ -300,18 +274,13 @@ export default function DashboardClient() {
                       href={`/dashboard/incidents/${incident.id}`}
                       style={linkCell}
                       title={incident.id}
-                      onClick={(e) => e.stopPropagation()}
                     >
                       {shortId(incident.id)}
                     </Link>
                   </td>
 
                   <td style={td}>
-                    <Link
-                      href={`/dashboard/incidents/${incident.id}`}
-                      style={titleLink}
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <Link href={`/dashboard/incidents/${incident.id}`} style={titleLink}>
                       {incident.title}
                     </Link>
                     {incident.description ? (
@@ -323,24 +292,7 @@ export default function DashboardClient() {
                   <td style={td}>{incident.severity}</td>
                   <td style={td}>{formatDate(incident.created_at)}</td>
                   <td style={td}>{formatDate(incident.updated_at)}</td>
-
-                  <td style={td}>
-                    <select
-                      value={incident.assignee_id || ""}
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        if (next) assignIncident(incident.id, next);
-                      }}
-                      style={assignSelect}
-                    >
-                      <option value="">{incident.assignee ? fullName(incident.assignee) : "—"}</option>
-                      {users.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {fullName(u)}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
+                  <td style={td}>{incident.assignee ? fullName(incident.assignee) : (incident.assignee_id || "—")}</td>
                 </tr>
               ))
             )}
@@ -500,15 +452,4 @@ const subRow: React.CSSProperties = {
   marginTop: 4,
   opacity: 0.75,
   fontSize: 12,
-};
-
-const assignSelect: React.CSSProperties = {
-  width: "100%",
-  border: "1px solid rgba(255,255,255,.12)",
-  borderRadius: 12,
-  background: "transparent",
-  color: "inherit",
-  padding: "8px 10px",
-  fontSize: 12,
-  outline: "none",
 };

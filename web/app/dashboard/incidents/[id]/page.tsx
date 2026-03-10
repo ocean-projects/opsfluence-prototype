@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 type IncidentStatus = "OPEN" | "IN_PROGRESS" | "MITIGATED" | "RESOLVED";
 type IncidentSeverity = "SEV1" | "SEV2" | "SEV3" | "SEV4";
@@ -14,6 +14,13 @@ type UserLite = {
   last_name?: string | null;
 };
 
+type Me = {
+  id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string;
+};
+
 type Incident = {
   id: string;
   title: string;
@@ -22,6 +29,7 @@ type Incident = {
   severity: IncidentSeverity;
   created_by: string;
   assignee_id?: string | null;
+  assignee?: UserLite | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -30,6 +38,7 @@ type IncidentEvent = {
   id: string;
   incident_id: string;
   actor_id?: string | null;
+  actor?: UserLite | null;
   type: string;
   data?: Record<string, unknown> | null;
   created_at?: string | null;
@@ -42,58 +51,93 @@ function formatDate(value?: string | null) {
   return d.toLocaleString();
 }
 
-function userDisplay(users: UserLite[], userId?: string | null) {
+function formatEnumLabel(value?: string | null) {
+  if (!value) return "—";
+  return value.replaceAll("_", " ");
+}
+
+function displayUser(user?: UserLite | null, fallbackId?: string | null) {
+  if (user) {
+    const name = `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim();
+    return name || user.email || fallbackId || user.id;
+  }
+  return fallbackId || "—";
+}
+
+function displayUserById(users: UserLite[], userId?: string | null) {
   if (!userId) return "—";
   const user = users.find((u) => u.id === userId);
-  if (!user) return userId;
-  const name = `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim();
-  return name || user.email || user.id;
+  return displayUser(user, userId);
 }
 
 function eventTitle(type: string) {
   switch (type) {
     case "created":
+    case "INCIDENT_CREATED":
       return "Created";
     case "title_updated":
+    case "TITLE_CHANGED":
       return "Title updated";
     case "description_updated":
+    case "DESCRIPTION_UPDATED":
       return "Description updated";
     case "status_updated":
+    case "STATUS_CHANGED":
       return "Status updated";
     case "severity_updated":
+    case "SEVERITY_CHANGED":
       return "Severity updated";
     case "assignee_updated":
+    case "ASSIGNEE_UPDATED":
       return "Assignee updated";
     default:
-      return type;
+      return formatEnumLabel(type);
   }
 }
 
 function eventDetails(ev: IncidentEvent, users: UserLite[]) {
   const data = ev.data || {};
 
+  const fromValue =
+    (data.from as string | null | undefined) ??
+    (data.before as string | null | undefined) ??
+    null;
+
+  const toValue =
+    (data.to as string | null | undefined) ??
+    (data.after as string | null | undefined) ??
+    null;
+
   switch (ev.type) {
     case "created":
-      return `Incident created with title "${String(data.title ?? "")}", status ${String(
-        data.status ?? ""
+    case "INCIDENT_CREATED":
+      return `Incident created with title "${String(data.title ?? "")}", status ${formatEnumLabel(
+        String(data.status ?? "")
       )}, and severity ${String(data.severity ?? "")}.`;
 
     case "title_updated":
-      return `Title changed from "${String(data.from ?? "")}" to "${String(data.to ?? "")}".`;
+    case "TITLE_CHANGED":
+      return `Title updated from "${String(fromValue ?? "")}" to "${String(toValue ?? "")}".`;
 
     case "description_updated":
-      return `Description changed from "${String(data.from ?? "")}" to "${String(data.to ?? "")}".`;
+    case "DESCRIPTION_UPDATED":
+      return `Description updated from "${String(fromValue ?? "")}" to "${String(toValue ?? "")}".`;
 
     case "status_updated":
-      return `Status changed from ${String(data.from ?? "")} to ${String(data.to ?? "")}.`;
+    case "STATUS_CHANGED":
+      return `Status updated from ${formatEnumLabel(String(fromValue ?? ""))} to ${formatEnumLabel(
+        String(toValue ?? "")
+      )}.`;
 
     case "severity_updated":
-      return `Severity changed from ${String(data.from ?? "")} to ${String(data.to ?? "")}.`;
+    case "SEVERITY_CHANGED":
+      return `Severity updated from ${String(fromValue ?? "")} to ${String(toValue ?? "")}.`;
 
-    case "assignee_updated": {
-      const fromId = (data.from as string | null | undefined) ?? null;
-      const toId = (data.to as string | null | undefined) ?? null;
-      return `Assignee changed from ${userDisplay(users, fromId)} to ${userDisplay(users, toId)}.`;
+    case "assignee_updated":
+    case "ASSIGNEE_UPDATED": {
+      const fromId = fromValue;
+      const toId = toValue;
+      return `Assignee changed from ${displayUserById(users, fromId)} to ${displayUserById(users, toId)}.`;
     }
 
     default:
@@ -101,16 +145,33 @@ function eventDetails(ev: IncidentEvent, users: UserLite[]) {
   }
 }
 
+function sortButton(active: boolean): React.CSSProperties {
+  return {
+    padding: "4px 8px",
+    borderRadius: 8,
+    border: "1px solid rgba(255,255,255,.15)",
+    background: active ? "rgba(255,255,255,.15)" : "transparent",
+    color: "white",
+    cursor: "pointer",
+    fontSize: 12,
+  };
+}
+
 export default function IncidentDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const incidentId = Array.isArray(params?.id) ? params.id[0] : (params?.id as string | undefined);
 
+  const [me, setMe] = useState<Me | null>(null);
   const [incident, setIncident] = useState<Incident | null>(null);
   const [events, setEvents] = useState<IncidentEvent[]>([]);
   const [users, setUsers] = useState<UserLite[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
   const [error, setError] = useState("");
+  const [eventSort, setEventSort] = useState<"desc" | "asc">("desc");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -119,6 +180,15 @@ export default function IncidentDetailPage() {
   const [assigneeId, setAssigneeId] = useState("");
 
   const canLoad = useMemo(() => !!incidentId && incidentId !== "undefined", [incidentId]);
+  const isOwner = !!me && !!incident && me.id === incident.created_by;
+
+  const sortedEvents = useMemo(() => {
+    return [...events].sort((a, b) => {
+      const ta = new Date(a.created_at ?? 0).getTime();
+      const tb = new Date(b.created_at ?? 0).getTime();
+      return eventSort === "desc" ? tb - ta : ta - tb;
+    });
+  }, [events, eventSort]);
 
   async function loadAll() {
     if (!canLoad) {
@@ -131,11 +201,14 @@ export default function IncidentDetailPage() {
     setError("");
 
     try {
-      const [incidentRes, eventsRes, usersRes] = await Promise.all([
+      const [meRes, incidentRes, eventsRes, usersRes] = await Promise.all([
+        fetch("/api/me", { cache: "no-store" }),
         fetch(`/api/incidents/${incidentId}`, { cache: "no-store" }),
         fetch(`/api/incidents/${incidentId}/events`, { cache: "no-store" }),
         fetch("/api/users", { cache: "no-store" }),
       ]);
+
+      if (meRes.ok) setMe(await meRes.json());
 
       if (!incidentRes.ok) {
         throw new Error(`Incident API error ${incidentRes.status}: ${await incidentRes.text()}`);
@@ -206,6 +279,31 @@ export default function IncidentDetailPage() {
     }
   }
 
+  async function deleteIncident() {
+    if (!incidentId) return;
+
+    setDeleting(true);
+    setError("");
+
+    try {
+      const res = await fetch(`/api/incidents/${incidentId}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm: deleteConfirm }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Delete failed ${res.status}: ${await res.text()}`);
+      }
+
+      router.push("/dashboard");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete incident");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <main style={page}>
       <div style={topRow}>
@@ -255,7 +353,7 @@ export default function IncidentDetailPage() {
                 style={input}
               >
                 <option value="OPEN">OPEN</option>
-                <option value="IN_PROGRESS">IN_PROGRESS</option>
+                <option value="IN_PROGRESS">IN PROGRESS</option>
                 <option value="MITIGATED">MITIGATED</option>
                 <option value="RESOLVED">RESOLVED</option>
               </select>
@@ -276,14 +374,11 @@ export default function IncidentDetailPage() {
                 style={assignSelect}
               >
                 <option value="">Unassigned</option>
-                {users.map((u) => {
-                  const name = `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || u.email || u.id;
-                  return (
-                    <option key={u.id} value={u.id}>
-                      {name}
-                    </option>
-                  );
-                })}
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {displayUser(u)}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -295,13 +390,25 @@ export default function IncidentDetailPage() {
           </form>
 
           <div style={card}>
-            <div style={sectionTitle}>Event history</div>
+            <div style={eventCardHeader}>
+              <div style={sectionTitleNoMargin}>Event history</div>
 
-            {events.length === 0 ? (
+              <div style={sortRow}>
+                <span style={sortLabel}>Sort:</span>
+                <button type="button" onClick={() => setEventSort("desc")} style={sortButton(eventSort === "desc")}>
+                  Newest
+                </button>
+                <button type="button" onClick={() => setEventSort("asc")} style={sortButton(eventSort === "asc")}>
+                  Oldest
+                </button>
+              </div>
+            </div>
+
+            {sortedEvents.length === 0 ? (
               <div style={subtle}>No events yet.</div>
             ) : (
               <div style={list}>
-                {events.map((ev) => (
+                {sortedEvents.map((ev) => (
                   <div key={ev.id} style={listItem}>
                     <div style={eventHeaderRow}>
                       <div style={eventName}>{eventTitle(ev.type)}</div>
@@ -311,7 +418,7 @@ export default function IncidentDetailPage() {
                     <div style={eventMetaRow}>
                       <div>
                         <span style={metaLabel}>Who:</span>{" "}
-                        <span style={metaValue}>{userDisplay(users, ev.actor_id)}</span>
+                        <span style={metaValue}>{displayUser(ev.actor, ev.actor_id)}</span>
                       </div>
                       <div>
                         <span style={metaLabel}>When:</span>{" "}
@@ -326,6 +433,32 @@ export default function IncidentDetailPage() {
               </div>
             )}
           </div>
+
+          {isOwner ? (
+            <div style={dangerCard}>
+              <div style={sectionTitle}>Delete incident</div>
+              <div style={dangerText}>
+                This removes the incident from the live incidents list and archives it in deleted incidents.
+              </div>
+              <div style={label}>Type DELETE to confirm</div>
+              <input
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                placeholder="DELETE"
+                style={dangerInput}
+              />
+              <div style={actions}>
+                <button
+                  type="button"
+                  disabled={deleting || deleteConfirm !== "DELETE"}
+                  onClick={deleteIncident}
+                  style={deleteButton}
+                >
+                  {deleting ? "Deleting..." : "DELETE"}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </>
       )}
     </main>
@@ -375,6 +508,43 @@ const card: React.CSSProperties = {
   marginBottom: 18,
 };
 
+const dangerCard: React.CSSProperties = {
+  border: "1px solid rgba(210,70,70,.7)",
+  borderRadius: 18,
+  background: "rgba(90,10,10,.25)",
+  padding: 18,
+  marginBottom: 18,
+};
+
+const dangerText: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.85,
+  marginBottom: 12,
+};
+
+const dangerInput: React.CSSProperties = {
+  width: 220,
+  maxWidth: "100%",
+  border: "1px solid rgba(210,70,70,.7)",
+  borderRadius: 12,
+  background: "transparent",
+  color: "inherit",
+  padding: "10px 12px",
+  fontSize: 13,
+  outline: "none",
+  marginBottom: 12,
+};
+
+const deleteButton: React.CSSProperties = {
+  border: "1px solid rgba(210,70,70,.8)",
+  background: "rgba(140,20,20,.65)",
+  color: "white",
+  borderRadius: 14,
+  padding: "10px 16px",
+  fontSize: 13,
+  cursor: "pointer",
+};
+
 const errorBox: React.CSSProperties = {
   marginBottom: 16,
   padding: "14px 16px",
@@ -389,6 +559,11 @@ const sectionTitle: React.CSSProperties = {
   fontSize: 16,
   fontWeight: 700,
   marginBottom: 14,
+};
+
+const sectionTitleNoMargin: React.CSSProperties = {
+  fontSize: 16,
+  fontWeight: 700,
 };
 
 const grid: React.CSSProperties = {
@@ -454,6 +629,25 @@ const button: React.CSSProperties = {
   padding: "10px 16px",
   fontSize: 13,
   cursor: "pointer",
+};
+
+const eventCardHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 14,
+};
+
+const sortRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  fontSize: 12,
+};
+
+const sortLabel: React.CSSProperties = {
+  opacity: 0.75,
 };
 
 const list: React.CSSProperties = {
