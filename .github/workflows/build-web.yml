@@ -1,0 +1,60 @@
+name: Build web
+
+# Objective build signal: independent of Vercel, runs on every push and
+# pull request. If this goes green, the Next.js app compiles cleanly
+# and any 404 you're seeing on the deployed URL is a Vercel routing /
+# alias problem, not a code problem.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/build-web.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/build-web.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Show environment
+        run: |
+          node --version
+          npm --version
+          ls -la
+          cat next.config.ts
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Inspect build output
+        run: |
+          echo "=== .next tree (2 levels) ==="
+          find .next -maxdepth 2 -type d | head -40 || true
+          echo ""
+          echo "=== .next/server/app routes ==="
+          find .next/server/app -type f 2>/dev/null | head -40 || true
+          echo ""
+          echo "=== BUILD_ID + build manifest exist? ==="
+          ls -la .next/BUILD_ID .next/routes-manifest.json 2>&1 || true
